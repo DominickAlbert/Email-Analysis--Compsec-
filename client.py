@@ -14,6 +14,7 @@ from nltk.tokenize import word_tokenize
 from lime.lime_text import LimeTextExplainer
 from sklearn.pipeline import make_pipeline
 import nltk
+from phe import paillier # Library for HE
 
 stop_words = set(stopwords.words('english'))
 
@@ -72,7 +73,9 @@ def preprocess_data(df):
 
 
 class SpamClient(fl.client.NumPyClient):
-    def __init__(self, df: pd.DataFrame):
+    def __init__(self, df: pd.DataFrame, public_key):
+        self.public_key = public_key
+
         #preprocess the data
         df_clean = preprocess_data(df)
         vectorizer = TfidfVectorizer()
@@ -93,10 +96,13 @@ class SpamClient(fl.client.NumPyClient):
 
     def get_parameters(self, config):
         # return θ: (feature_log_prob_, class_log_prior_)
-        return [self.model.feature_log_prob_, self.model.class_log_prior_]
+        feature_log_prob_encrypted = [self.public_key.encrypt(float(x)) for x in self.model.feature_log_prob_.flatten()]
+        class_log_prior_encrypted = [self.public_key.encrypt(float(x)) for x in self.model.class_log_prior_]
+        return [feature_log_prob_encrypted, class_log_prior_encrypted]
 
     def set_parameters(self, parameters, config):
-        self.model.feature_log_prob_, self.model.class_log_prior_ = parameters
+        self.model.feature_log_prob_ = np.array([self.public_key.decrypt(x) for x in parameters[0]]).reshape(self.model.feature_log_prob_.shape)
+        self.model.class_log_prior_ = np.array([self.public_key.decrypt(x) for x in parameters[1]])
 
     def fit(self, parameters, config):
         self.set_parameters(parameters, config)
@@ -111,7 +117,8 @@ class SpamClient(fl.client.NumPyClient):
 # start client (pass in its local DataFrame)
 if __name__ == "__main__":
     local_data = pd.read_csv("CEAS_08.csv")
-    client = SpamClient(local_data)
+    public_key,_ = paillier.generate_paillier_keypair()
+    client = SpamClient(local_data,public_key)
     fl.client.start_numpy_client(server_address="localhost:8080", client=client)
 
     # Create a LIME explainer

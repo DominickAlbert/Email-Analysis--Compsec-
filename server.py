@@ -1,5 +1,6 @@
 import flwr as fl
 from phe import paillier  # Import Paillier encryption
+import numpy as np
 
 public_key, private_key = paillier.generate_paillier_keypair()
 
